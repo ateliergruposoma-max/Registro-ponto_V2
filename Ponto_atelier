@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Registro de Ponto</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+    theme: {
+        extend: {
+            colors: { primary: "#135bec", "background-light": "#f6f6f8" }
+        }
+    }
+}
+</script>
+</head>
+<body class="bg-background-light min-h-screen flex items-center justify-center p-4">
+
+<div class="w-full max-w-md bg-white rounded-2xl shadow-xl p-6 space-y-4">
+    <h2 class="text-2xl font-semibold text-center text-primary">Registro de Ponto</h2>
+
+    <div class="relative">
+        <label class="block text-sm font-medium mb-1">Nome <span class="text-red-500">*</span></label>
+        <input id="nome" type="text" placeholder="Carregando nomes..." class="w-full rounded-lg border px-4 py-3 focus:ring-2 focus:ring-primary" autocomplete="off" disabled />
+        <ul id="listaNomes" class="absolute z-10 w-full border rounded-lg mt-1 max-h-40 overflow-y-auto hidden bg-white shadow-lg"></ul>
+    </div>
+
+    <div>
+        <label class="block text-sm font-medium mb-1">Entrada</label>
+        <input id="entrada" type="time" class="w-full rounded-lg border px-4 py-3 bg-gray-50" />
+    </div>
+
+    <div class="bg-blue-50 p-4 rounded-xl border border-blue-100">
+        <label class="block text-sm font-bold text-primary mb-2">Anexar Comprovante (Visor) <span class="text-red-500">*</span></label>
+        <input id="foto" type="file" accept="image/*" class="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-white hover:file:bg-blue-700 cursor-pointer" />
+        <img id="previewImagem" class="hidden mt-3 rounded-lg max-h-48 mx-auto shadow-md border-2 border-white"/>
+    </div>
+
+    <button id="btnEnviar" onclick="enviar()" class="w-full bg-primary text-white py-3 rounded-lg font-semibold hover:opacity-90 transition-all">
+        Confirmar e Salvar
+    </button>
+
+    <p id="msgStatus" class="hidden text-center text-sm font-medium"></p>
+</div>
+
+<script>
+const URL_GET_NOMES  = "https://labsazzas2154.app.n8n.cloud/webhook/nomes";
+const URL_POST_PONTO = "https://labsazzas2154.app.n8n.cloud/webhook/Infomacao_usuario";
+
+let cadastro = [];
+let fotoBase64 = null;
+let nomeSelecionado = false;
+let enviando = false;
+
+const inputNome = document.getElementById("nome");
+const inputEntrada = document.getElementById("entrada");
+const inputFoto = document.getElementById("foto");
+const lista = document.getElementById("listaNomes");
+const msgStatus = document.getElementById("msgStatus");
+const previewImagem = document.getElementById("previewImagem");
+const btnEnviar = document.getElementById("btnEnviar");
+
+// Carregar Nomes
+async function carregarCadastro() {
+    try {
+        const res = await fetch(URL_GET_NOMES);
+        cadastro = await res.json();
+        inputNome.disabled = false;
+        inputNome.placeholder = "Digite seu nome...";
+    } catch (e) {
+        inputNome.placeholder = "Erro ao carregar nomes";
+    }
+}
+
+// Autocomplete
+function renderLista(valor = "") {
+    lista.innerHTML = "";
+    const filtrados = cadastro
+        .filter(p => p.Nome && p.Nome.toLowerCase().includes(valor.toLowerCase()))
+        .slice(0, 10);
+    filtrados.forEach(p => {
+        const li = document.createElement("li");
+        li.textContent = p.Nome;
+        li.className = "px-4 py-2 cursor-pointer hover:bg-primary hover:text-white";
+        li.onclick = () => { inputNome.value = p.Nome; nomeSelecionado = true; lista.classList.add("hidden"); };
+        lista.appendChild(li);
+    });
+    lista.classList.toggle("hidden", filtrados.length === 0);
+}
+
+inputNome.addEventListener("input", () => { nomeSelecionado = false; renderLista(inputNome.value); });
+
+// Processo da Foto
+inputFoto.addEventListener("change", function () {
+    const file = this.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        fotoBase64 = e.target.result.split(",")[1];
+        previewImagem.src = e.target.result;
+        previewImagem.classList.remove("hidden");
+    };
+    reader.readAsDataURL(file);
+});
+
+// Enviar Registro
+async function enviar() {
+    if (enviando) return;
+    
+    // Validação básica local
+    if (!nomeSelecionado || !fotoBase64) {
+        alert("Por favor, selecione seu nome e anexe a foto.");
+        return;
+    }
+
+    try {
+        enviando = true;
+        btnEnviar.disabled = true;
+        btnEnviar.textContent = "Processando e Salvando...";
+        msgStatus.className = "text-center text-blue-600";
+        msgStatus.textContent = "Aguardando validação da IA...";
+        msgStatus.classList.remove("hidden");
+
+        const res = await fetch(URL_POST_PONTO, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+                nome: inputNome.value, 
+                entrada: inputEntrada.value || "Não informada",
+                foto: fotoBase64 
+            })
+        });
+
+        if (res.ok) {
+            msgStatus.className = "text-center text-green-600 font-bold";
+            msgStatus.textContent = "Sucesso! Registro salvo no Excel.";
+            
+            // Limpa o formulário após 2 segundos
+            setTimeout(() => {
+                inputNome.value = "";
+                inputEntrada.value = "";
+                inputFoto.value = "";
+                previewImagem.classList.add("hidden");
+                fotoBase64 = null;
+                nomeSelecionado = false;
+                msgStatus.classList.add("hidden");
+                btnEnviar.disabled = false;
+                btnEnviar.textContent = "Confirmar e Salvar";
+                enviando = false;
+                alert("Ponto registrado com sucesso!");
+            }, 2000);
+        } else {
+            throw new Error("Erro no servidor");
+        }
+
+    } catch (err) {
+        msgStatus.className = "text-center text-red-500 font-bold";
+        msgStatus.textContent = "Erro ao salvar. Tente novamente.";
+        btnEnviar.disabled = false;
+        btnEnviar.textContent = "Confirmar e Salvar";
+        enviando = false;
+    }
+}
+
+window.onload = carregarCadastro;
+</script>
+</body>
+</html>
